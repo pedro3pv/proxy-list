@@ -1,26 +1,36 @@
 """
-proxy_collector.py  — com análise de sobreposição entre fontes
+proxy_collector.py  — com verificação assíncrona de proxies (timeout 500ms)
 """
 
 import re
 import json
 import csv
 import io
+import asyncio
+import time
 import requests
+import aiohttp
 from typing import Set
 from itertools import combinations
 
+# ─────────────────────────────────────────────
+# CONFIG
+# ─────────────────────────────────────────────
+VERIFY_TIMEOUT_MS  = 500          # proxies com latência > 500ms são descartados
+VERIFY_CONCURRENCY = 500          # conexões simultâneas
+VERIFY_TEST_URL    = "http://httpbin.org/ip"  # URL usada para testar o proxy
+
 SOURCES = [
-    {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Https.txt",                           "format": "txt_ip_port",      "protocol": "https",  "name": "r00tee/Https"},
-    {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Socks4.txt",                           "format": "txt_ip_port",      "protocol": "socks4", "name": "r00tee/Socks4"},
-    {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Socks5.txt",                           "format": "txt_ip_port",      "protocol": "socks5", "name": "r00tee/Socks5"},
-    {"url": "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/http.txt",                "format": "txt_ip_port",      "protocol": "http",   "name": "databay/http"},
-    {"url": "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt",              "format": "txt_ip_port",      "protocol": "socks5", "name": "databay/socks5"},
-    {"url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",                        "format": "txt_ip_port",      "protocol": "http",   "name": "TheSpeedX/http"},
-    {"url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt",                      "format": "txt_ip_port",      "protocol": "socks4", "name": "TheSpeedX/socks4"},
-    {"url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",                      "format": "txt_ip_port",      "protocol": "socks5", "name": "TheSpeedX/socks5"},
-    {"url": "https://raw.githubusercontent.com/stormsia/proxy-list/main/working_proxies.txt",                "format": "txt_proto_prefix", "protocol": None,     "name": "stormsia/all"},
-    {"url": "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/all/data.txt",          "format": "txt_proto_prefix", "protocol": None,     "name": "proxifly/all"},
+    {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Https.txt",                  "format": "txt_ip_port",      "protocol": "https",  "name": "r00tee/Https"},
+    {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Socks4.txt",                  "format": "txt_ip_port",      "protocol": "socks4", "name": "r00tee/Socks4"},
+    {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Socks5.txt",                  "format": "txt_ip_port",      "protocol": "socks5", "name": "r00tee/Socks5"},
+    {"url": "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/http.txt",       "format": "txt_ip_port",      "protocol": "http",   "name": "databay/http"},
+    {"url": "https://raw.githubusercontent.com/databay-labs/free-proxy-list/master/socks5.txt",     "format": "txt_ip_port",      "protocol": "socks5", "name": "databay/socks5"},
+    {"url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",               "format": "txt_ip_port",      "protocol": "http",   "name": "TheSpeedX/http"},
+    {"url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt",             "format": "txt_ip_port",      "protocol": "socks4", "name": "TheSpeedX/socks4"},
+    {"url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",             "format": "txt_ip_port",      "protocol": "socks5", "name": "TheSpeedX/socks5"},
+    {"url": "https://raw.githubusercontent.com/stormsia/proxy-list/main/working_proxies.txt",       "format": "txt_proto_prefix", "protocol": None,     "name": "stormsia/all"},
+    {"url": "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/all/data.txt", "format": "txt_proto_prefix", "protocol": None,     "name": "proxifly/all"},
     {
         "url": (
             "https://api.proxyscrape.com/v4/free-proxy-list/get"
@@ -34,7 +44,10 @@ SOURCES = [
 
 OUTPUT_FILE = "proxies_all.txt"
 
-IP_PORT_RE     = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$")
+# ─────────────────────────────────────────────
+# REGEX & CONSTANTES
+# ─────────────────────────────────────────────
+IP_PORT_RE      = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$")
 PROTO_PREFIX_RE = re.compile(r"^(https?|socks[45])://(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})$", re.IGNORECASE)
 VALID_PROTOCOLS = {"http", "https", "socks4", "socks5"}
 
@@ -43,6 +56,9 @@ def normalize_protocol(proto: str) -> str:
     return proto.lower().strip()
 
 
+# ─────────────────────────────────────────────
+# PARSERS
+# ─────────────────────────────────────────────
 def parse_txt_ip_port(text: str, protocol: str) -> Set[str]:
     proxies = set()
     for line in text.splitlines():
@@ -69,7 +85,7 @@ def parse_csv_proxifly(text: str) -> Set[str]:
     reader = csv.DictReader(io.StringIO(text))
     for row in reader:
         try:
-            norm = {k.lower().strip(): v for k, v in row.items()}
+            norm  = {k.lower().strip(): v for k, v in row.items()}
             ip    = norm.get("ip", "").strip()
             port  = norm.get("port", "").strip()
             proto = normalize_protocol(norm.get("protocol", norm.get("type", "")))
@@ -116,6 +132,85 @@ def fetch(url: str) -> str | None:
 
 
 # ─────────────────────────────────────────────
+# VERIFICAÇÃO ASSÍNCRONA
+# ─────────────────────────────────────────────
+async def check_proxy(
+    proxy_url: str,
+    session: aiohttp.ClientSession,
+    semaphore: asyncio.Semaphore,
+    timeout_s: float,
+) -> tuple[str, bool, float]:
+    """
+    Retorna (proxy_url, is_alive, latency_ms).
+    Testa HTTP e HTTPS via connector de proxy do aiohttp.
+    SOCKS4/5 requer aiohttp-socks.
+    """
+    async with semaphore:
+        t0 = time.monotonic()
+        try:
+            connector = aiohttp.TCPConnector(ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as s:
+                async with s.get(
+                    VERIFY_TEST_URL,
+                    proxy=proxy_url,
+                    timeout=aiohttp.ClientTimeout(total=timeout_s),
+                    allow_redirects=False,
+                ) as resp:
+                    await resp.read()
+                    latency = (time.monotonic() - t0) * 1000
+                    return proxy_url, resp.status < 500, latency
+        except Exception:
+            latency = (time.monotonic() - t0) * 1000
+            return proxy_url, False, latency
+
+
+async def verify_all(proxies: list[str]) -> list[tuple[str, float]]:
+    """
+    Verifica todos os proxies em paralelo.
+    Retorna lista de (proxy_url, latency_ms) dos que passaram.
+    """
+    timeout_s  = VERIFY_TIMEOUT_MS / 1000
+    semaphore  = asyncio.Semaphore(VERIFY_CONCURRENCY)
+    total      = len(proxies)
+
+    print(f"\n🔍 Verificando {total:,} proxies (timeout={VERIFY_TIMEOUT_MS}ms, "
+          f"concorrência={VERIFY_CONCURRENCY})...")
+
+    # aiohttp não suporta socks nativamente — usa aiohttp-socks se disponível
+    try:
+        from aiohttp_socks import ProxyConnector  # noqa: F401
+        socks_available = True
+    except ImportError:
+        socks_available = False
+        print("  ⚠️  aiohttp-socks não instalado — proxies SOCKS4/5 serão pulados na verificação.")
+
+    tasks = []
+    skipped_socks = 0
+
+    async with aiohttp.ClientSession() as session:
+        for proxy in proxies:
+            proto = proxy.split("://")[0].lower()
+            if proto in ("socks4", "socks5") and not socks_available:
+                skipped_socks += 1
+                continue
+            tasks.append(check_proxy(proxy, session, semaphore, timeout_s))
+
+        results_raw = await asyncio.gather(*tasks)
+
+    if skipped_socks:
+        print(f"  ℹ️  {skipped_socks:,} proxies SOCKS pulados (instale aiohttp-socks para verificá-los).")
+
+    alive   = [(url, lat) for url, ok, lat in results_raw if ok]
+    dead    = total - len(alive) - skipped_socks
+    avg_lat = sum(l for _, l in alive) / len(alive) if alive else 0
+
+    print(f"  ✅ {len(alive):,} vivos  |  ❌ {dead:,} mortos  |  ⏭️  {skipped_socks:,} pulados")
+    print(f"  📶 Latência média dos vivos: {avg_lat:.0f}ms")
+
+    return alive
+
+
+# ─────────────────────────────────────────────
 # ANÁLISE DE SOBREPOSIÇÃO
 # ─────────────────────────────────────────────
 def overlap_report(source_map: dict[str, Set[str]]) -> None:
@@ -124,12 +219,10 @@ def overlap_report(source_map: dict[str, Set[str]]) -> None:
     print("📊 RELATÓRIO DE SOBREPOSIÇÃO ENTRE FONTES")
     print("─" * 60)
 
-    # Total por fonte
     print("\n[Tamanho de cada fonte]")
     for name, proxies in source_map.items():
         print(f"  {name:<30} {len(proxies):>7,} proxies")
 
-    # Sobreposições pares (só imprime se > 0)
     print("\n[Sobreposições entre pares de fontes]")
     has_overlap = False
     for a, b in combinations(names, 2):
@@ -143,7 +236,6 @@ def overlap_report(source_map: dict[str, Set[str]]) -> None:
     if not has_overlap:
         print("  Nenhuma sobreposição encontrada entre pares.")
 
-    # Total de duplicatas removidas
     union_size = len(set().union(*source_map.values()))
     total_raw  = sum(len(v) for v in source_map.values())
     removed    = total_raw - union_size
@@ -157,9 +249,10 @@ def overlap_report(source_map: dict[str, Set[str]]) -> None:
 # ─────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────
-def main():
-    source_map: dict[str, Set[str]] = {}  # name → set de proxies
+async def amain():
+    source_map: dict[str, Set[str]] = {}
 
+    # ── 1. Coleta e parse
     for src in SOURCES:
         name = src["name"]
         fmt  = src["format"]
@@ -180,17 +273,30 @@ def main():
         source_map[name] = parsed
         print(f"  {len(parsed):,} proxies carregados.")
 
-    # ── Relatório de sobreposição ANTES de gravar
+    # ── 2. Relatório de sobreposição
     overlap_report(source_map)
 
-    # ── Merge final sem duplicatas
-    all_proxies = set().union(*source_map.values())
-    sorted_proxies = sorted(all_proxies)
+    # ── 3. Merge sem duplicatas
+    all_proxies = sorted(set().union(*source_map.values()))
+    print(f"\n🗂  Total único antes da verificação: {len(all_proxies):,}")
 
+    # ── 4. Verificação de disponibilidade (≤ 500ms)
+    alive_list = await verify_all(all_proxies)
+
+    # Ordena por latência crescente
+    alive_list.sort(key=lambda x: x[1])
+    valid_proxies = [url for url, _ in alive_list]
+
+    # ── 5. Grava apenas os proxies vivos
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        f.write("\n".join(sorted_proxies) + "\n")
+        f.write("\n".join(valid_proxies) + "\n")
 
-    print(f"\n✅ {len(sorted_proxies):,} proxies únicos gravados em '{OUTPUT_FILE}'")
+    print(f"\n✅ {len(valid_proxies):,} proxies vivos gravados em '{OUTPUT_FILE}' "
+          f"(ordenados por latência)")
+
+
+def main():
+    asyncio.run(amain())
 
 
 if __name__ == "__main__":
