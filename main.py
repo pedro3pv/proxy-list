@@ -21,6 +21,40 @@ VERIFY_CONCURRENCY = 500          # conexões simultâneas
 VERIFY_TEST_URL    = "https://google.com"  # URL usada para testar o proxy
 
 SOURCES = [
+        # ── gfpcom/free-proxy-list  (GitHub Wiki — TXT proto://ip:port, +400k proxies!)
+    {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/http.txt",   "format": "txt_proto_prefix", "protocol": None, "name": "gfpcom/http"},
+    {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/https.txt",  "format": "txt_proto_prefix", "protocol": None, "name": "gfpcom/https"},
+    {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/socks4.txt", "format": "txt_proto_prefix", "protocol": None, "name": "gfpcom/socks4"},
+    {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/socks5.txt", "format": "txt_proto_prefix", "protocol": None, "name": "gfpcom/socks5"},
+
+    # ── jetkai/proxy-list  (TXT simples ip:port, atualizado a cada hora)
+    {"url": "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-http.txt",   "format": "txt_ip_port", "protocol": "http",   "name": "jetkai/http"},
+    {"url": "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-https.txt",  "format": "txt_ip_port", "protocol": "https",  "name": "jetkai/https"},
+    {"url": "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-socks4.txt", "format": "txt_ip_port", "protocol": "socks4", "name": "jetkai/socks4"},
+    {"url": "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-socks5.txt", "format": "txt_ip_port", "protocol": "socks5", "name": "jetkai/socks5"},
+
+    # ── MuRongPIG/Proxy-Master  (TXT simples ip:port)
+    {"url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/http.txt",   "format": "txt_ip_port", "protocol": "http",   "name": "MuRongPIG/http"},
+    {"url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/socks4.txt", "format": "txt_ip_port", "protocol": "socks4", "name": "MuRongPIG/socks4"},
+    {"url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/socks5.txt", "format": "txt_ip_port", "protocol": "socks5", "name": "MuRongPIG/socks5"},
+
+    # ── yemixzy/proxy-list  (TXT simples ip:port, atualizado a cada 3h)
+    {"url": "https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxies/http.txt",   "format": "txt_ip_port", "protocol": "http",   "name": "yemixzy/http"},
+    {"url": "https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxies/socks4.txt", "format": "txt_ip_port", "protocol": "socks4", "name": "yemixzy/socks4"},
+    {"url": "https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxies/socks5.txt", "format": "txt_ip_port", "protocol": "socks5", "name": "yemixzy/socks5"},
+
+    # ── casa-ls/proxy-list  (TXT simples ip:port, atualização diária)
+    {"url": "https://raw.githubusercontent.com/casa-ls/proxy-list/main/http",   "format": "txt_ip_port", "protocol": "http",   "name": "casa-ls/http"},
+    {"url": "https://raw.githubusercontent.com/casa-ls/proxy-list/main/socks4", "format": "txt_ip_port", "protocol": "socks4", "name": "casa-ls/socks4"},
+    {"url": "https://raw.githubusercontent.com/casa-ls/proxy-list/main/socks5", "format": "txt_ip_port", "protocol": "socks5", "name": "casa-ls/socks5"},
+
+    # ── Databay API  (JSON: {"data": [{"ip":..., "port":..., "protocol":...}]})
+    {"url": "https://databay.com/api/v1/proxy-list?format=json&limit=1000",                   "format": "json_databay", "protocol": None, "name": "databay-api/all"},
+    {"url": "https://databay.com/api/v1/proxy-list?protocol=socks5&format=json&limit=1000",   "format": "json_databay", "protocol": None, "name": "databay-api/socks5"},
+
+    # ── PubProxy API  (JSON simples, 1 proxy aleatório por request — sem limite declarado)
+    {"url": "http://pubproxy.com/api/proxy?limit=20&format=json&type=http",   "format": "json_pubproxy", "protocol": "http",   "name": "pubproxy/http"},
+    {"url": "http://pubproxy.com/api/proxy?limit=20&format=json&type=socks5", "format": "json_pubproxy", "protocol": "socks5", "name": "pubproxy/socks5"},
     {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Https.txt",                  "format": "txt_ip_port",      "protocol": "https",  "name": "r00tee/Https"},
     {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Socks4.txt",                  "format": "txt_ip_port",      "protocol": "socks4", "name": "r00tee/Socks4"},
     {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Socks5.txt",                  "format": "txt_ip_port",      "protocol": "socks5", "name": "r00tee/Socks5"},
@@ -34,7 +68,7 @@ SOURCES = [
     {
         "url": (
             "https://api.proxyscrape.com/v4/free-proxy-list/get"
-            "?request=display_proxies&proxy_format=protocolipport&format=json&limit=10000"
+            "?request=display_proxies&proxy_format=protocolipport&format=json&limit=900000"
         ),
         "format": "json_proxyscrape",
         "protocol": None,
@@ -59,6 +93,44 @@ def normalize_protocol(proto: str) -> str:
 # ─────────────────────────────────────────────
 # PARSERS
 # ─────────────────────────────────────────────
+def parse_json_databay(text: str) -> Set[str]:
+    """
+    Databay API.
+    Estrutura: {"data": [{"ip": "1.2.3.4", "port": 8080, "protocol": "http"}]}
+    """
+    proxies = set()
+    try:
+        data  = json.loads(text)
+        items = data.get("data", [])
+        for item in items:
+            ip    = item.get("ip", "").strip()
+            port  = str(item.get("port", "")).strip()
+            proto = normalize_protocol(item.get("protocol", ""))
+            if ip and port and proto in VALID_PROTOCOLS:
+                proxies.add(f"{proto}://{ip}:{port}")
+    except json.JSONDecodeError as e:
+        print(f"  [ERRO JSON] {e}")
+    return proxies
+
+
+def parse_json_pubproxy(text: str, protocol: str) -> Set[str]:
+    """
+    PubProxy API.
+    Estrutura: {"data": [{"ipPort": "1.2.3.4:8080", "type": "http"}]}
+    """
+    proxies = set()
+    try:
+        data  = json.loads(text)
+        items = data.get("data", [])
+        for item in items:
+            ip_port = item.get("ipPort", "").strip()
+            proto   = normalize_protocol(item.get("type", protocol))
+            if ip_port and proto in VALID_PROTOCOLS:
+                proxies.add(f"{proto}://{ip_port}")
+    except json.JSONDecodeError as e:
+        print(f"  [ERRO JSON] {e}")
+    return proxies
+
 def parse_txt_ip_port(text: str, protocol: str) -> Set[str]:
     proxies = set()
     for line in text.splitlines():
@@ -118,7 +190,10 @@ FORMAT_PARSERS = {
     "txt_proto_prefix": lambda text, src: parse_txt_proto_prefix(text),
     "csv_proxifly":     lambda text, src: parse_csv_proxifly(text),
     "json_proxyscrape": lambda text, src: parse_json_proxyscrape(text),
+    "json_databay":     lambda text, src: parse_json_databay(text),
+    "json_pubproxy":    lambda text, src: parse_json_pubproxy(text, src["protocol"]),
 }
+
 
 
 def fetch(url: str) -> str | None:
