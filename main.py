@@ -18,7 +18,7 @@ from itertools import combinations
 # ─────────────────────────────────────────────
 VERIFY_TIMEOUT_MS  = 500          # proxies com latência > 500ms são descartados
 VERIFY_CONCURRENCY = 500          # conexões simultâneas
-VERIFY_TEST_URL    = "http://httpbin.org/ip"  # URL usada para testar o proxy
+VERIFY_TEST_URL    = "https://google.com"  # URL usada para testar o proxy
 
 SOURCES = [
     {"url": "https://raw.githubusercontent.com/r00tee/Proxy-List/main/Https.txt",                  "format": "txt_ip_port",      "protocol": "https",  "name": "r00tee/Https"},
