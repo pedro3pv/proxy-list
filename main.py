@@ -21,7 +21,48 @@ VERIFY_CONCURRENCY = 500          # conexões simultâneas
 VERIFY_TEST_URL    = "https://google.com"  # URL usada para testar o proxy
 
 SOURCES = [
-        # ── gfpcom/free-proxy-list  (GitHub Wiki — TXT proto://ip:port, +400k proxies!)
+    # ══════════════════════════════════════════════════════════════
+    # NOVAS FONTES — adicionar ao SOURCES existente
+    # ══════════════════════════════════════════════════════════════
+
+    # ── clarketm/proxy-list  (TXT: ip:port -- country -- type -- latency)
+    # O proxy-list-raw.txt tem só ip:port, ideal para parse simples
+    {"url": "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",   "format": "txt_ip_port",      "protocol": "http",   "name": "clarketm/http"},
+
+    # ── hookzof/socks5_list  (TXT simples: ip:port — atualizado constantemente)
+    {"url": "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",            "format": "txt_ip_port",      "protocol": "socks5", "name": "hookzof/socks5"},
+
+    # ── roosterkid/openproxylist  (TXT simples: ip:port — atualizado a cada hora)
+    {"url": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",     "format": "txt_ip_port",      "protocol": "https",  "name": "roosterkid/https"},
+    {"url": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS4_RAW.txt",    "format": "txt_ip_port",      "protocol": "socks4", "name": "roosterkid/socks4"},
+    {"url": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS5_RAW.txt",    "format": "txt_ip_port",      "protocol": "socks5", "name": "roosterkid/socks5"},
+
+    # ── ErcinDedeoglu/proxies  (TXT simples: ip:port — pasta proxies/, ~100k+)
+    {"url": "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/http.txt",     "format": "txt_ip_port",      "protocol": "http",   "name": "ErcinDedeoglu/http"},
+    {"url": "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/https.txt",    "format": "txt_ip_port",      "protocol": "https",  "name": "ErcinDedeoglu/https"},
+    {"url": "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/socks4.txt",   "format": "txt_ip_port",      "protocol": "socks4", "name": "ErcinDedeoglu/socks4"},
+    {"url": "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/socks5.txt",   "format": "txt_ip_port",      "protocol": "socks5", "name": "ErcinDedeoglu/socks5"},
+
+    # ── zloi-user/hideip.me  (TXT simples: ip:port — atualizado a cada 10 min)
+    {"url": "https://raw.githubusercontent.com/zloi-user/hideip.me/main/http.txt",               "format": "txt_ip_port",      "protocol": "http",   "name": "hideip.me/http"},
+    {"url": "https://raw.githubusercontent.com/zloi-user/hideip.me/main/https.txt",              "format": "txt_ip_port",      "protocol": "https",  "name": "hideip.me/https"},
+    {"url": "https://raw.githubusercontent.com/zloi-user/hideip.me/main/socks4.txt",             "format": "txt_ip_port",      "protocol": "socks4", "name": "hideip.me/socks4"},
+    {"url": "https://raw.githubusercontent.com/zloi-user/hideip.me/main/socks5.txt",             "format": "txt_ip_port",      "protocol": "socks5", "name": "hideip.me/socks5"},
+
+    # ── vakhov/fresh-proxy-list  (TXT simples: ip:port — atualizado diariamente)
+    {"url": "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/http.txt",         "format": "txt_ip_port",      "protocol": "http",   "name": "vakhov/http"},
+    {"url": "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/https.txt",        "format": "txt_ip_port",      "protocol": "https",  "name": "vakhov/https"},
+    {"url": "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/socks4.txt",       "format": "txt_ip_port",      "protocol": "socks4", "name": "vakhov/socks4"},
+    {"url": "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/socks5.txt",       "format": "txt_ip_port",      "protocol": "socks5", "name": "vakhov/socks5"},
+
+    # ── vakhov/fresh-proxy-list  (JSON: [{"ip":...,"port":...,"type":...}])
+    {"url": "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/proxylist.json",   "format": "json_vakhov",      "protocol": None,     "name": "vakhov/json"},
+
+    # ── MuRongPIG/Proxy-Master  (TXT simples: ip:port)
+    {"url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/http.txt",            "format": "txt_ip_port",      "protocol": "http",   "name": "MuRongPIG/http"},
+    {"url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/socks4.txt",          "format": "txt_ip_port",      "protocol": "socks4", "name": "MuRongPIG/socks4"},
+    {"url": "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/socks5.txt",          "format": "txt_ip_port",      "protocol": "socks5", "name": "MuRongPIG/socks5"},
+    # ── gfpcom/free-proxy-list  (GitHub Wiki — TXT proto://ip:port, +400k proxies!)
     {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/http.txt",   "format": "txt_proto_prefix", "protocol": None, "name": "gfpcom/http"},
     {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/https.txt",  "format": "txt_proto_prefix", "protocol": None, "name": "gfpcom/https"},
     {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/socks4.txt", "format": "txt_proto_prefix", "protocol": None, "name": "gfpcom/socks4"},
@@ -93,6 +134,26 @@ def normalize_protocol(proto: str) -> str:
 # ─────────────────────────────────────────────
 # PARSERS
 # ─────────────────────────────────────────────
+def parse_json_vakhov(text: str) -> Set[str]:
+    """
+    vakhov/fresh-proxy-list proxylist.json
+    Estrutura: [{"ip": "1.2.3.4", "port": "8080", "type": "http", ...}]
+    """
+    proxies = set()
+    try:
+        items = json.loads(text)
+        if not isinstance(items, list):
+            items = items.get("data", [])
+        for item in items:
+            ip    = item.get("ip", "").strip()
+            port  = str(item.get("port", "")).strip()
+            proto = normalize_protocol(item.get("type", ""))
+            if ip and port and proto in VALID_PROTOCOLS:
+                proxies.add(f"{proto}://{ip}:{port}")
+    except json.JSONDecodeError as e:
+        print(f"  [ERRO JSON] {e}")
+    return proxies
+
 def parse_json_databay(text: str) -> Set[str]:
     """
     Databay API.
@@ -192,6 +253,7 @@ FORMAT_PARSERS = {
     "json_proxyscrape": lambda text, src: parse_json_proxyscrape(text),
     "json_databay":     lambda text, src: parse_json_databay(text),
     "json_pubproxy":    lambda text, src: parse_json_pubproxy(text, src["protocol"]),
+    "json_vakhov": lambda text, src: parse_json_vakhov(text),
 }
 
 
