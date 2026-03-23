@@ -17,7 +17,7 @@ from itertools import combinations
 # CONFIG
 # ─────────────────────────────────────────────
 VERIFY_TIMEOUT_MS  = 500          # proxies com latência > 500ms são descartados
-VERIFY_CONCURRENCY = 500          # conexões simultâneas
+VERIFY_CONCURRENCY = 30000          # conexões simultâneas
 VERIFY_TEST_URL    = "https://google.com"  # URL usada para testar o proxy
 
 SOURCES = [
