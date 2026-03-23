@@ -5,7 +5,7 @@
 
 Este repositório coleta e deduplica automaticamente mais de **1.8 milhão de proxies públicos** (`HTTP`, `HTTPS`, `SOCKS4`, `SOCKS5`) extraídos das maiores fontes open-source do GitHub e APIs de proxy.
 
-A cada hora, um [GitHub Action](.github/workflows/collect-proxies.yml) percorre mais de 25 fontes massivas, unifica e deduplica as listas, e publica o arquivo `proxies_all.txt` atualizado. A **verificação de proxies ativos é feita localmente pelo usuário** com o `proxy_checker.py` — assim você verifica com a sua própria rede, sem depender de infraestrutura externa.
+A cada 3 horas, um [GitHub Action](.github/workflows/collect-proxies.yml) percorre mais de 25 fontes massivas, unifica e deduplica as listas, e publica o arquivo `proxies_all.txt` atualizado. A **verificação de proxies ativos é feita localmente pelo usuário** com o `proxy_checker.py` — assim você verifica com a sua própria rede, sem depender de infraestrutura externa.
 
 ---
 
@@ -13,7 +13,7 @@ A cada hora, um [GitHub Action](.github/workflows/collect-proxies.yml) percorre 
 
 👉 **[Baixar proxies_all.txt (Latest Release)](https://github.com/pedro3pv/proxy-list/releases/latest)**
 
-> Lista atualizada automaticamente a cada hora. Formato `protocolo://ip:porta`:
+> Lista atualizada automaticamente a cada 3 horas. Formato `protocolo://ip:porta`:
 > ```
 > http://1.2.3.4:8080
 > https://5.6.7.8:3128
@@ -74,7 +74,7 @@ python proxy_checker.py --fetch URL --concurrency 8000 --timeout 1.0 --workers 1
 1. **Coleta bruta** — Baixa listas de proxies de TXTs, JSONs, APIs e repositórios em tempo real
 2. **Deduplicação** — Remove duplicatas usando *Sets* em Python (de ~2.2M brutos para ~1.8M únicos)
 3. **Publicação** — Gera relatório de sobreposição entre fontes e publica no GitHub Releases
-4. **Frequência** — Roda automaticamente **a cada hora** via GitHub Actions
+4. **Frequência** — Roda automaticamente **a cada 3 horas** via GitHub Actions
 
 ---
 
