@@ -37,7 +37,8 @@ jobs:
           command_timeout: 55m
           script: |
             set -e
-            cd /root/proxy-collector     # ajuste para o caminho do seu projeto
+            cd /root/proxy-collector
+            source .venv/bin/activate
 
             # Garante dependências atualizadas
             pip install -q -r requirements.txt
