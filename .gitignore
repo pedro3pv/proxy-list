@@ -206,3 +206,4 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 proxies_all.txt
+proxies_verified.txt
