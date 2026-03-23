@@ -1,0 +1,84 @@
+name: Collect Proxies
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: Collect & Publish Proxy List
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run proxy collector
+        run: python main.py
+
+      - name: Show summary
+        run: |
+          TOTAL=$(wc -l < proxies_all.txt)
+          echo "## 🌐 Proxy Collection #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Info | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 📅 Data | $(date -u '+%Y-%m-%d %H:%M UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔢 Total de proxies | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Por protocolo" >> $GITHUB_STEP_SUMMARY
+          echo "| Protocolo | Qtd |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-----|" >> $GITHUB_STEP_SUMMARY
+          for proto in http https socks4 socks5; do
+            count=$(grep -c "^${proto}://" proxies_all.txt || true)
+            echo "| \`$proto\` | $count |" >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: proxies-${{ github.run_number }}
+          name: "Proxy List #${{ github.run_number }} — $(date -u '+%Y-%m-%d')"
+          body: |
+            🌐 **Lista de proxies públicos coletada automaticamente**
+
+            📅 Data: `${{ github.run_id }}` — $(date -u '+%Y-%m-%d %H:%M UTC')
+            🔢 Run: #${{ github.run_number }}
+
+            ### Protocolos incluídos
+            - HTTP, HTTPS, SOCKS4, SOCKS5
+
+            ### Fontes
+            - r00tee/Proxy-List
+            - databay-labs/free-proxy-list
+            - TheSpeedX/PROXY-List
+            - stormsia/proxy-list
+            - proxifly/free-proxy-list
+            - ProxyScrape API v4
+
+            > ⚠️ Lista gerada automaticamente. Proxies públicos podem estar offline.
+          files: proxies_all.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rotate old releases (keep 3)
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 3
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
