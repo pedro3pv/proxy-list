@@ -16,9 +16,9 @@ from itertools import combinations
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
-VERIFY_TIMEOUT_MS  = 500          # proxies com latência > 500ms são descartados
+VERIFY_TIMEOUT_MS  = 3000          # proxies com latência > 500ms são descartados
 VERIFY_CONCURRENCY = 30000          # conexões simultâneas
-VERIFY_TEST_URL    = "https://google.com"  # URL usada para testar o proxy
+VERIFY_TEST_URL    = "https://httpbin.org/ip"  # URL usada para testar o proxy
 
 SOURCES = [
     # ── Zaeem20/FREE_PROXIES_LIST  (atualizado a cada 10 min)
