@@ -29,38 +29,55 @@ jobs:
       - name: Run proxy collector
         run: python main.py
 
+      # ── Captura data e totais como outputs ──────────────────────────────
+      - name: Collect metadata
+        id: meta
+        run: |
+          echo "date=$(date -u '+%Y-%m-%d')"            >> $GITHUB_OUTPUT
+          echo "datetime=$(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_OUTPUT
+          echo "total=$(wc -l < proxies_all.txt | xargs)"  >> $GITHUB_OUTPUT
+          echo "http=$(grep -c '^http://'    proxies_all.txt || true)" >> $GITHUB_OUTPUT
+          echo "https=$(grep -c '^https://'  proxies_all.txt || true)" >> $GITHUB_OUTPUT
+          echo "socks4=$(grep -c '^socks4://' proxies_all.txt || true)" >> $GITHUB_OUTPUT
+          echo "socks5=$(grep -c '^socks5://' proxies_all.txt || true)" >> $GITHUB_OUTPUT
+
       - name: Show summary
         run: |
-          TOTAL=$(wc -l < proxies_all.txt)
-          echo "## 🌐 Proxy Collection #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Info | Valor |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 📅 Data | $(date -u '+%Y-%m-%d %H:%M UTC') |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔢 Total de proxies | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### Por protocolo" >> $GITHUB_STEP_SUMMARY
-          echo "| Protocolo | Qtd |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|-----|" >> $GITHUB_STEP_SUMMARY
-          for proto in http https socks4 socks5; do
-            count=$(grep -c "^${proto}://" proxies_all.txt || true)
-            echo "| \`$proto\` | $count |" >> $GITHUB_STEP_SUMMARY
-          done
+          {
+            echo "## 🌐 Proxy Collection #${{ github.run_number }}"
+            echo ""
+            echo "| Info | Valor |"
+            echo "|------|-------|"
+            echo "| 📅 Data       | ${{ steps.meta.outputs.datetime }} |"
+            echo "| 🔢 Total      | ${{ steps.meta.outputs.total }} |"
+            echo ""
+            echo "### Por protocolo"
+            echo "| Protocolo | Qtd |"
+            echo "|-----------|-----|"
+            echo "| \`http\`   | ${{ steps.meta.outputs.http }} |"
+            echo "| \`https\`  | ${{ steps.meta.outputs.https }} |"
+            echo "| \`socks4\` | ${{ steps.meta.outputs.socks4 }} |"
+            echo "| \`socks5\` | ${{ steps.meta.outputs.socks5 }} |"
+          } >> $GITHUB_STEP_SUMMARY
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: proxies-${{ github.run_number }}
-          name: "Proxy List #${{ github.run_number }} — $(date -u '+%Y-%m-%d')"
+          name: "Proxy List #${{ github.run_number }} — ${{ steps.meta.outputs.date }}"
           body: |
             🌐 **Lista de proxies públicos coletada automaticamente**
 
-            📅 Data: `${{ github.run_id }}` — $(date -u '+%Y-%m-%d %H:%M UTC')
+            📅 Data: `${{ steps.meta.outputs.datetime }}`
             🔢 Run: #${{ github.run_number }}
+            📦 Total: `${{ steps.meta.outputs.total }}` proxies únicos
 
-            ### Protocolos incluídos
-            - HTTP, HTTPS, SOCKS4, SOCKS5
+            | Protocolo | Qtd |
+            |-----------|-----|
+            | `http`    | ${{ steps.meta.outputs.http }} |
+            | `https`   | ${{ steps.meta.outputs.https }} |
+            | `socks4`  | ${{ steps.meta.outputs.socks4 }} |
+            | `socks5`  | ${{ steps.meta.outputs.socks5 }} |
 
             ### Fontes
             - r00tee/Proxy-List
