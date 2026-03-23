@@ -17,19 +17,58 @@ import requests
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
-TCP_CONCURRENCY   = 3000       # por processo/worker
-TCP_TIMEOUT_S     = 1.5        # agressivo — proxies ruins caem rápido
-HTTP_CONCURRENCY  = 300        # por worker, fase 2
+TCP_CONCURRENCY   = 3000
+TCP_TIMEOUT_S     = 1.5
+HTTP_CONCURRENCY  = 300
 HTTP_TIMEOUT_S    = 4.0
 HTTP_TEST_URL     = "http://httpbin.org/ip"
 
-NUM_WORKERS       = max(1, os.cpu_count())   # 1 processo por CPU
-CHUNK_SIZE        = 50_000     # proxies por worker por rodada
+NUM_WORKERS       = max(1, os.cpu_count())
+CHUNK_SIZE        = 50_000
 
 SKIP_HTTP_VERIFY  = False
 OUTPUT_FILE       = "proxies_all.txt"
 
 _IP_PORT_RE = re.compile(r"[a-z0-9+]+://(\d{1,3}(?:\.\d{1,3}){3}):(\d+)")
+
+# ─────────────────────────────────────────────
+# HELPERS DE PROGRESSO
+# ─────────────────────────────────────────────
+def fmt_time(seconds: float) -> str:
+    """Formata segundos em mm:ss ou hh:mm:ss."""
+    seconds = max(0, int(seconds))
+    h, rem  = divmod(seconds, 3600)
+    m, s    = divmod(rem, 60)
+    if h:
+        return f"{h}h{m:02d}m{s:02d}s"
+    return f"{m:02d}m{s:02d}s"
+
+def print_progress(
+    phase: str,
+    done: int,
+    total_chunks: int,
+    alive: int,
+    dead: int,
+    elapsed: float,
+    phase_start: float,
+) -> None:
+    pct      = done / total_chunks * 100
+    eta_s    = (elapsed / done) * (total_chunks - done) if done else 0
+    speed    = alive / elapsed if elapsed > 0 else 0          # vivos/s
+    bar_len  = 30
+    filled   = int(bar_len * done / total_chunks)
+    bar      = "█" * filled + "░" * (bar_len - filled)
+
+    print(
+        f"\r  {phase} [{bar}] {pct:5.1f}%  "
+        f"chunk {done}/{total_chunks}  "
+        f"✅ {alive:,}  ❌ {dead:,}  "
+        f"⚡ {speed:.0f} vivos/s  "
+        f"⏱ {fmt_time(elapsed)} decorrido  "
+        f"ETA {fmt_time(eta_s)}",
+        end="",
+        flush=True,
+    )
 
 # ─────────────────────────────────────────────
 # COLETA
@@ -44,7 +83,7 @@ def fetch(url: str) -> str | None:
         return None
 
 # ─────────────────────────────────────────────
-# FASE 1 — TCP CONNECT (roda dentro de cada worker)
+# FASE 1 — TCP CONNECT
 # ─────────────────────────────────────────────
 async def tcp_check(proxy_url: str, sem: asyncio.Semaphore) -> tuple[str, bool]:
     async with sem:
@@ -64,16 +103,15 @@ async def tcp_check(proxy_url: str, sem: asyncio.Semaphore) -> tuple[str, bool]:
             return proxy_url, False
 
 async def run_tcp_chunk(chunk: list[str]) -> list[str]:
-    sem = asyncio.Semaphore(TCP_CONCURRENCY)
+    sem     = asyncio.Semaphore(TCP_CONCURRENCY)
     results = await asyncio.gather(*[tcp_check(p, sem) for p in chunk])
     return [url for url, ok in results if ok]
 
 def worker_tcp(chunk: list[str]) -> list[str]:
-    """Função executada em processo separado."""
     return asyncio.run(run_tcp_chunk(chunk))
 
 # ─────────────────────────────────────────────
-# FASE 2 — HTTP VERIFY (roda dentro de cada worker)
+# FASE 2 — HTTP VERIFY
 # ─────────────────────────────────────────────
 async def http_check(proxy_url: str, session, sem: asyncio.Semaphore) -> tuple[str, bool, float]:
     proto = proxy_url.split("://")[0].lower()
@@ -85,16 +123,18 @@ async def http_check(proxy_url: str, session, sem: asyncio.Semaphore) -> tuple[s
                 import aiohttp
                 conn = ProxyConnector.from_url(proxy_url, ssl=False)
                 async with aiohttp.ClientSession(connector=conn) as s:
-                    async with s.get(HTTP_TEST_URL,
-                                     timeout=__import__("aiohttp").ClientTimeout(total=HTTP_TIMEOUT_S),
-                                     allow_redirects=False) as resp:
+                    async with s.get(
+                        HTTP_TEST_URL,
+                        timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S),
+                        allow_redirects=False,
+                    ) as resp:
                         await resp.read()
                         return proxy_url, resp.status < 500, (time.monotonic() - t0) * 1000
             else:
                 async with session.get(
                     HTTP_TEST_URL,
                     proxy=proxy_url,
-                    timeout=__import__("aiohttp").ClientTimeout(total=HTTP_TIMEOUT_S),
+                    timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S),
                     allow_redirects=False,
                 ) as resp:
                     await resp.read()
@@ -104,7 +144,7 @@ async def http_check(proxy_url: str, session, sem: asyncio.Semaphore) -> tuple[s
 
 async def run_http_chunk(chunk: list[str]) -> list[tuple[str, float]]:
     import aiohttp
-    sem = asyncio.Semaphore(HTTP_CONCURRENCY)
+    sem       = asyncio.Semaphore(HTTP_CONCURRENCY)
     connector = aiohttp.TCPConnector(ssl=False, limit=HTTP_CONCURRENCY)
     async with aiohttp.ClientSession(connector=connector) as session:
         results = await asyncio.gather(*[http_check(p, session, sem) for p in chunk])
@@ -128,46 +168,67 @@ def chunked(lst: list, size: int):
 # PIPELINE PARALELO
 # ─────────────────────────────────────────────
 def parallel_tcp(all_proxies: list[str]) -> list[str]:
-    chunks = list(chunked(all_proxies, CHUNK_SIZE))
-    total  = len(all_proxies)
-    print(f"\n⚡ Fase 1 — TCP connect: {total:,} proxies em {len(chunks)} chunks "
-          f"× {NUM_WORKERS} workers (timeout={TCP_TIMEOUT_S}s)...")
-    t0 = time.monotonic()
+    chunks       = list(chunked(all_proxies, CHUNK_SIZE))
+    total        = len(all_proxies)
+    total_chunks = len(chunks)
 
+    print(f"\n⚡ Fase 1 — TCP connect")
+    print(f"   {total:,} proxies  |  {total_chunks} chunks  |  "
+          f"{NUM_WORKERS} workers  |  timeout {TCP_TIMEOUT_S}s")
+    print(f"   Estimativa inicial: ~{fmt_time(total / (NUM_WORKERS * TCP_CONCURRENCY / TCP_TIMEOUT_S))}")
+    print()
+
+    t0    = time.monotonic()
     alive = []
+    dead  = 0
+
     with mp.Pool(processes=NUM_WORKERS) as pool:
         for i, result in enumerate(pool.imap_unordered(worker_tcp, chunks), 1):
+            chunk_alive = len(result)
+            chunk_dead  = CHUNK_SIZE - chunk_alive  # aproximado
             alive.extend(result)
-            pct = i / len(chunks) * 100
+            dead  += chunk_dead
             elapsed = time.monotonic() - t0
-            eta = (elapsed / i) * (len(chunks) - i)
-            print(f"  chunk {i}/{len(chunks)} ({pct:.0f}%)  "
-                  f"vivos até agora: {len(alive):,}  "
-                  f"ETA: {eta:.0f}s", end="\r")
+            print_progress("TCP", i, total_chunks, len(alive), dead, elapsed, t0)
 
     elapsed = time.monotonic() - t0
-    print(f"\n  ✅ {len(alive):,} portas abertas  |  ❌ {total - len(alive):,} fechadas")
-    print(f"  ⏱  Fase 1: {elapsed:.1f}s ({elapsed/60:.1f} min)")
+    total_dead = total - len(alive)
+    print(f"\n\n  ✅ Fase 1 concluída em {fmt_time(elapsed)}")
+    print(f"  Portas abertas : {len(alive):,} ({len(alive)/total*100:.1f}%)")
+    print(f"  Fechadas/timeout: {total_dead:,} ({total_dead/total*100:.1f}%)")
     return alive
 
 def parallel_http(tcp_alive: list[str]) -> list[tuple[str, float]]:
-    chunks = list(chunked(tcp_alive, CHUNK_SIZE))
-    total  = len(tcp_alive)
-    print(f"\n🌐 Fase 2 — HTTP verify: {total:,} proxies em {len(chunks)} chunks "
-          f"× {NUM_WORKERS} workers (timeout={HTTP_TIMEOUT_S}s)...")
-    t0 = time.monotonic()
+    chunks       = list(chunked(tcp_alive, CHUNK_SIZE))
+    total        = len(tcp_alive)
+    total_chunks = len(chunks)
 
+    print(f"\n🌐 Fase 2 — HTTP verify")
+    print(f"   {total:,} proxies  |  {total_chunks} chunks  |  "
+          f"{NUM_WORKERS} workers  |  timeout {HTTP_TIMEOUT_S}s")
+    print(f"   Estimativa inicial: ~{fmt_time(total / (NUM_WORKERS * HTTP_CONCURRENCY / HTTP_TIMEOUT_S))}")
+    print()
+
+    t0    = time.monotonic()
     alive = []
+    dead  = 0
+
     with mp.Pool(processes=NUM_WORKERS) as pool:
         for i, result in enumerate(pool.imap_unordered(worker_http, chunks), 1):
+            chunk_alive = len(result)
+            chunk_dead  = CHUNK_SIZE - chunk_alive
             alive.extend(result)
+            dead  += chunk_dead
             elapsed = time.monotonic() - t0
-            eta = (elapsed / i) * (len(chunks) - i)
-            print(f"  chunk {i}/{len(chunks)}  vivos: {len(alive):,}  ETA: {eta:.0f}s", end="\r")
+            print_progress("HTTP", i, total_chunks, len(alive), dead, elapsed, t0)
 
-    elapsed = time.monotonic() - t0
-    print(f"\n  ✅ {len(alive):,} vivos  |  ❌ {total - len(alive):,} mortos")
-    print(f"  ⏱  Fase 2: {elapsed:.1f}s ({elapsed/60:.1f} min)")
+    elapsed    = time.monotonic() - t0
+    total_dead = total - len(alive)
+    avg_lat    = sum(l for _, l in alive) / len(alive) if alive else 0
+    print(f"\n\n  ✅ Fase 2 concluída em {fmt_time(elapsed)}")
+    print(f"  Vivos  : {len(alive):,} ({len(alive)/total*100:.1f}%)")
+    print(f"  Mortos : {total_dead:,} ({total_dead/total*100:.1f}%)")
+    print(f"  Latência média: {avg_lat:.0f}ms")
     return alive
 
 # ─────────────────────────────────────────────
@@ -189,6 +250,7 @@ def overlap_report(source_map: dict[str, Set[str]]) -> None:
 # MAIN
 # ─────────────────────────────────────────────
 def main():
+    t_global = time.monotonic()
     source_map: dict[str, Set[str]] = {}
 
     for src in SOURCES:
@@ -209,10 +271,8 @@ def main():
     all_proxies = sorted(set().union(*source_map.values()))
     print(f"\n🗂  Total único: {len(all_proxies):,}")
 
-    # Fase 1
     tcp_alive = parallel_tcp(all_proxies)
 
-    # Fase 2 (opcional)
     if SKIP_HTTP_VERIFY:
         valid_proxies = tcp_alive
     else:
@@ -223,8 +283,10 @@ def main():
     with open(OUTPUT_FILE, "w") as f:
         f.write("\n".join(valid_proxies) + "\n")
 
-    print(f"\n✅ {len(valid_proxies):,} proxies em '{OUTPUT_FILE}'")
+    total_elapsed = time.monotonic() - t_global
+    print(f"\n✅ {len(valid_proxies):,} proxies gravados em '{OUTPUT_FILE}'")
+    print(f"⏱  Tempo total: {fmt_time(total_elapsed)}")
 
 if __name__ == "__main__":
-    mp.set_start_method("spawn", force=True)  # compatível com macOS/Windows
+    mp.set_start_method("spawn", force=True)
     main()
