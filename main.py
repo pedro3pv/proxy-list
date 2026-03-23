@@ -35,7 +35,6 @@ _IP_PORT_RE = re.compile(r"[a-z0-9+]+://(\d{1,3}(?:\.\d{1,3}){3}):(\d+)")
 # HELPERS DE PROGRESSO
 # ─────────────────────────────────────────────
 def fmt_time(seconds: float) -> str:
-    """Formata segundos em mm:ss ou hh:mm:ss."""
     seconds = max(0, int(seconds))
     h, rem  = divmod(seconds, 3600)
     m, s    = divmod(rem, 60)
@@ -43,22 +42,13 @@ def fmt_time(seconds: float) -> str:
         return f"{h}h{m:02d}m{s:02d}s"
     return f"{m:02d}m{s:02d}s"
 
-def print_progress(
-    phase: str,
-    done: int,
-    total_chunks: int,
-    alive: int,
-    dead: int,
-    elapsed: float,
-    phase_start: float,
-) -> None:
-    pct      = done / total_chunks * 100
-    eta_s    = (elapsed / done) * (total_chunks - done) if done else 0
-    speed    = alive / elapsed if elapsed > 0 else 0          # vivos/s
-    bar_len  = 30
-    filled   = int(bar_len * done / total_chunks)
-    bar      = "█" * filled + "░" * (bar_len - filled)
-
+def print_progress(phase, done, total_chunks, alive, dead, elapsed):
+    pct     = done / total_chunks * 100
+    eta_s   = (elapsed / done) * (total_chunks - done) if done else 0
+    speed   = alive / elapsed if elapsed > 0 else 0
+    bar_len = 30
+    filled  = int(bar_len * done / total_chunks)
+    bar     = "█" * filled + "░" * (bar_len - filled)
     print(
         f"\r  {phase} [{bar}] {pct:5.1f}%  "
         f"chunk {done}/{total_chunks}  "
@@ -66,8 +56,7 @@ def print_progress(
         f"⚡ {speed:.0f} vivos/s  "
         f"⏱ {fmt_time(elapsed)} decorrido  "
         f"ETA {fmt_time(eta_s)}",
-        end="",
-        flush=True,
+        end="", flush=True,
     )
 
 # ─────────────────────────────────────────────
@@ -108,7 +97,12 @@ async def run_tcp_chunk(chunk: list[str]) -> list[str]:
     return [url for url, ok in results if ok]
 
 def worker_tcp(chunk: list[str]) -> list[str]:
-    return asyncio.run(run_tcp_chunk(chunk))
+    # ↓ trata exceção explicitamente para não sumir silenciosamente
+    try:
+        return asyncio.run(run_tcp_chunk(chunk))
+    except Exception as e:
+        print(f"\n  [WORKER TCP ERRO] {e}")
+        return []
 
 # ─────────────────────────────────────────────
 # FASE 2 — HTTP VERIFY
@@ -151,7 +145,11 @@ async def run_http_chunk(chunk: list[str]) -> list[tuple[str, float]]:
     return [(url, lat) for url, ok, lat in results if ok]
 
 def worker_http(chunk: list[str]) -> list[tuple[str, float]]:
-    return asyncio.run(run_http_chunk(chunk))
+    try:
+        return asyncio.run(run_http_chunk(chunk))
+    except Exception as e:
+        print(f"\n  [WORKER HTTP ERRO] {e}")
+        return []
 
 # ─────────────────────────────────────────────
 # CHUNKER
@@ -163,6 +161,23 @@ def chunked(lst: list, size: int):
         if not chunk:
             break
         yield chunk
+
+# ─────────────────────────────────────────────
+# DIAGNÓSTICO — testa 1 proxy manualmente
+# ─────────────────────────────────────────────
+def smoke_test(proxies: list[str], n: int = 5) -> None:
+    """Testa n proxies direto no processo principal para confirmar que TCP funciona."""
+    print(f"\n🔬 Smoke test — testando {n} proxies diretamente (sem multiprocessing)...")
+    sample = proxies[:n]
+
+    async def _run():
+        sem = asyncio.Semaphore(n)
+        results = await asyncio.gather(*[tcp_check(p, sem) for p in sample])
+        for url, ok in results:
+            status = "✅ VIVO" if ok else "❌ morto"
+            print(f"  {status}  {url}")
+
+    asyncio.run(_run())
 
 # ─────────────────────────────────────────────
 # PIPELINE PARALELO
@@ -184,17 +199,16 @@ def parallel_tcp(all_proxies: list[str]) -> list[str]:
 
     with mp.Pool(processes=NUM_WORKERS) as pool:
         for i, result in enumerate(pool.imap_unordered(worker_tcp, chunks), 1):
-            chunk_alive = len(result)
-            chunk_dead  = CHUNK_SIZE - chunk_alive  # aproximado
+            chunk_size_real = len(chunks[i - 1]) if i <= len(chunks) else CHUNK_SIZE
             alive.extend(result)
-            dead  += chunk_dead
+            dead += chunk_size_real - len(result)
             elapsed = time.monotonic() - t0
-            print_progress("TCP", i, total_chunks, len(alive), dead, elapsed, t0)
+            print_progress("TCP", i, total_chunks, len(alive), dead, elapsed)
 
-    elapsed = time.monotonic() - t0
+    elapsed    = time.monotonic() - t0
     total_dead = total - len(alive)
     print(f"\n\n  ✅ Fase 1 concluída em {fmt_time(elapsed)}")
-    print(f"  Portas abertas : {len(alive):,} ({len(alive)/total*100:.1f}%)")
+    print(f"  Portas abertas  : {len(alive):,} ({len(alive)/total*100:.1f}%)")
     print(f"  Fechadas/timeout: {total_dead:,} ({total_dead/total*100:.1f}%)")
     return alive
 
@@ -215,12 +229,11 @@ def parallel_http(tcp_alive: list[str]) -> list[tuple[str, float]]:
 
     with mp.Pool(processes=NUM_WORKERS) as pool:
         for i, result in enumerate(pool.imap_unordered(worker_http, chunks), 1):
-            chunk_alive = len(result)
-            chunk_dead  = CHUNK_SIZE - chunk_alive
+            chunk_size_real = len(chunks[i - 1]) if i <= len(chunks) else CHUNK_SIZE
             alive.extend(result)
-            dead  += chunk_dead
+            dead += chunk_size_real - len(result)
             elapsed = time.monotonic() - t0
-            print_progress("HTTP", i, total_chunks, len(alive), dead, elapsed, t0)
+            print_progress("HTTP", i, total_chunks, len(alive), dead, elapsed)
 
     elapsed    = time.monotonic() - t0
     total_dead = total - len(alive)
@@ -271,6 +284,9 @@ def main():
     all_proxies = sorted(set().union(*source_map.values()))
     print(f"\n🗂  Total único: {len(all_proxies):,}")
 
+    # ── Smoke test antes de rodar tudo ──────────────────────────────────
+    smoke_test(all_proxies, n=10)
+
     tcp_alive = parallel_tcp(all_proxies)
 
     if SKIP_HTTP_VERIFY:
@@ -287,6 +303,6 @@ def main():
     print(f"\n✅ {len(valid_proxies):,} proxies gravados em '{OUTPUT_FILE}'")
     print(f"⏱  Tempo total: {fmt_time(total_elapsed)}")
 
+# ─── CRÍTICO: sem set_start_method("spawn") no Linux ───────────────────
 if __name__ == "__main__":
-    mp.set_start_method("spawn", force=True)
     main()
